@@ -1,6 +1,9 @@
-import numpy as np
-import networkx as nx
+from concurrent import futures
+import itertools
 import random
+import time
+
+import numpy as np
 
 
 class Graph():
@@ -83,6 +86,8 @@ class Graph():
         G = self.G
         is_directed = self.is_directed
 
+        print('starting normalization and alias setup')
+        t0 = time.time()
         alias_nodes = {}
         for i, node in enumerate(G.nodes()):
             unnormalized_probs = [G[node][nbr]['weight'] for nbr in sorted(G.neighbors(node))]
@@ -91,12 +96,17 @@ class Graph():
                 normalized_probs = [float(u_prob) / norm_const for u_prob in unnormalized_probs]
             else:
                 print('{}: node {} has no edges'.format(i, node))
+                print('  unnormalized_probs: {}'.format(unnormalized_probs))
                 normalized_probs = [0.0 for u_prob in unnormalized_probs]
             alias_nodes[node] = alias_setup(normalized_probs)
+
+        print('  finished in {:8.2f}s'.format(time.time() - t0))
 
         alias_edges = {}
         triads = {}
 
+        print('starting alias edge setup')
+        t0 = time.time()
         if is_directed:
             for edge in G.edges():
                 alias_edges[edge] = self.get_alias_edge(edge[0], edge[1])
@@ -104,6 +114,52 @@ class Graph():
             for edge in G.edges():
                 alias_edges[edge] = self.get_alias_edge(edge[0], edge[1])
                 alias_edges[(edge[1], edge[0])] = self.get_alias_edge(edge[1], edge[0])
+
+        print('  finished in {:8.2f}s'.format(time.time() - t0))
+
+        self.alias_nodes = alias_nodes
+        self.alias_edges = alias_edges
+
+        return
+
+
+    def preprocess_transition_probs_concurrent(self):
+        '''
+        Preprocessing of transition probabilities for guiding the random walks.
+        '''
+        G = self.G
+        is_directed = self.is_directed
+
+        print('starting normalization and alias setup')
+        t0 = time.time()
+        alias_nodes = {}
+        for i, node in enumerate(G.nodes()):
+            unnormalized_probs = [G[node][nbr]['weight'] for nbr in sorted(G.neighbors(node))]
+            norm_const = sum(unnormalized_probs)
+            if norm_const > 0.0:
+                normalized_probs = [float(u_prob) / norm_const for u_prob in unnormalized_probs]
+            else:
+                print('{}: node {} has no edges'.format(i, node))
+                print('  unnormalized_probs: {}'.format(unnormalized_probs))
+                normalized_probs = [0.0 for u_prob in unnormalized_probs]
+            alias_nodes[node] = alias_setup(normalized_probs)
+
+        print('  finished in {:8.2f}s'.format(time.time() - t0))
+
+        alias_edges = {}
+        triads = {}
+
+        print('starting alias edge setup')
+        t0 = time.time()
+        if is_directed:
+            for edge in G.edges():
+                alias_edges[edge] = self.get_alias_edge(edge[0], edge[1])
+        else:
+            for edge in G.edges():
+                alias_edges[edge] = self.get_alias_edge(edge[0], edge[1])
+                alias_edges[(edge[1], edge[0])] = self.get_alias_edge(edge[1], edge[0])
+
+        print('  finished in {:8.2f}s'.format(time.time() - t0))
 
         self.alias_nodes = alias_nodes
         self.alias_edges = alias_edges
@@ -154,3 +210,9 @@ def alias_draw(J, q):
         return kk
     else:
         return J[kk]
+
+def grouper(iterable, n, fillvalue=None):
+    "Collect data into fixed-length chunks or blocks"
+    # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx"
+    args = [iter(iterable)] * n
+    return itertools.zip_longest(*args, fillvalue=fillvalue)
